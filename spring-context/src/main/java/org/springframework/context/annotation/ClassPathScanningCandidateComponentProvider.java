@@ -308,6 +308,7 @@ public class ClassPathScanningCandidateComponentProvider implements EnvironmentC
 	 * @return a corresponding Set of autodetected bean definitions
 	 */
 	public Set<BeanDefinition> findCandidateComponents(String basePackage) {
+		// 设置了spring.components文件后会走这个地方，加快beanDefinition的扫描
 		if (this.componentsIndex != null && indexSupportsIncludeFilters()) {
 			return addCandidateComponentsFromIndex(this.componentsIndex, basePackage);
 		}
@@ -415,25 +416,45 @@ public class ClassPathScanningCandidateComponentProvider implements EnvironmentC
 	private Set<BeanDefinition> scanCandidateComponents(String basePackage) {
 		Set<BeanDefinition> candidates = new LinkedHashSet<>();
 		try {
+			// 组装扫描路径 -- classpath*: + 转换后的路径 + /**/*.class
 			String packageSearchPath = ResourcePatternResolver.CLASSPATH_ALL_URL_PREFIX +
 					resolveBasePackage(basePackage) + '/' + this.resourcePattern;
+			// 扫描class返回resource，resource为Spring的一个资源抽象，底层使用统一的资源访问接口来访问Spring的资源
+			// 也就是说，不管什么格式的文件，也不管文件在哪里，到Spring底层，都只有一个访问接口Resource
 			Resource[] resources = getResourcePatternResolver().getResources(packageSearchPath);
 			boolean traceEnabled = logger.isTraceEnabled();
 			boolean debugEnabled = logger.isDebugEnabled();
+			// 遍历每个resource对象
 			for (Resource resource : resources) {
 				if (traceEnabled) {
 					logger.trace("Scanning " + resource);
 				}
+				// 资源可读
 				if (resource.isReadable()) {
 					try {
+						// 利用MetadataReaderFactory对象解析Resource对象得到MetadataReader对象
+						// 在Spring源码中MetadataReader具体实现类为CachingMetadataReaderFactory
+						// MetadataReader具体实现类为SimpleMetadataReader
+						// 该元数据读取器可以获取类的各种信息，主要是包含了AnnotationMetadata，例：类的名称、父类的名称、所实现的所有接口、所有内部类的名称、是不是抽象类
 						MetadataReader metadataReader = getMetadataReaderFactory().getMetadataReader(resource);
+						// 进行excludeFilters、includeFilters、condition筛选
 						if (isCandidateComponent(metadataReader)) {
+							// 基于metadataReader生成ScannedGenericBeanDefinition，此时ScannedGenericBeanDefinition只有两个属性有值
+							// beanClass(Object)和resource(Resource)，beanClass此时为bean的名称，resource为该对应的Resource
+							// 在bean被实例化的时候beanClass属性会被重新赋值为bean对应的class对象，此时只是存储了bean的名称
 							ScannedGenericBeanDefinition sbd = new ScannedGenericBeanDefinition(metadataReader);
+							// 设置resource
 							sbd.setSource(resource);
+							// 再次判断
+							// 1、是不是抽象类或者接口
+							// 2、是不是独立的类，内部类就是非独立类，因为程序编译后会为内部类生成额外的class文件，此时Spring并不会根据此class文件创建Bean
+							// 顶级类或者静态内部类可以作为独立的类
+							// 3、是抽象类但是有@Lookup注解，也可以成为bean。例：@Lookup("user")相当于依赖注入user对象
 							if (isCandidateComponent(sbd)) {
 								if (debugEnabled) {
 									logger.debug("Identified candidate component class: " + resource);
 								}
+								// 将符合条件的beanDefinition加入到集合中
 								candidates.add(sbd);
 							}
 							else {
@@ -491,8 +512,13 @@ public class ClassPathScanningCandidateComponentProvider implements EnvironmentC
 				return false;
 			}
 		}
+		// 符合includeFilters的话会继续进行condition判断，通过后符合成为bean的条件
+		// this.includeFilters会在扫描时默认添加@Component和@ManagedBean
+		// 也就是说如果类上有上诉两个注解，就能进行下一步条件判断
 		for (TypeFilter tf : this.includeFilters) {
 			if (tf.match(metadataReader, getMetadataReaderFactory())) {
+				// 判断类上是否有@condition注解，如果没有返回true
+				// 如果有，则执行条件类的match方法，返回该方法的执行结果
 				return isConditionMatch(metadataReader);
 			}
 		}

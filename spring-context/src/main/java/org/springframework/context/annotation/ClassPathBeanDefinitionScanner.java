@@ -249,8 +249,10 @@ public class ClassPathBeanDefinitionScanner extends ClassPathScanningCandidateCo
 	 * @return number of beans registered
 	 */
 	public int scan(String... basePackages) {
+		// 获取已经创建beanDefinition的数量
 		int beanCountAtScanStart = this.registry.getBeanDefinitionCount();
 
+		// 扫描传入路径下面的class文件
 		doScan(basePackages);
 
 		// Register annotation config processors, if necessary.
@@ -258,6 +260,7 @@ public class ClassPathBeanDefinitionScanner extends ClassPathScanningCandidateCo
 			AnnotationConfigUtils.registerAnnotationConfigProcessors(this.registry);
 		}
 
+		// 统计本次扫描数量
 		return (this.registry.getBeanDefinitionCount() - beanCountAtScanStart);
 	}
 
@@ -269,26 +272,37 @@ public class ClassPathBeanDefinitionScanner extends ClassPathScanningCandidateCo
 	 * @param basePackages the packages to check for annotated classes
 	 * @return set of beans registered if any for tooling registration purposes (never {@code null})
 	 */
+
 	protected Set<BeanDefinitionHolder> doScan(String... basePackages) {
 		Assert.notEmpty(basePackages, "At least one base package must be specified");
+		// 存储扫描到的、且符合条件的beanDefinition
 		Set<BeanDefinitionHolder> beanDefinitions = new LinkedHashSet<>();
+		// 遍历传入的路径，扫描class资源
 		for (String basePackage : basePackages) {
+			// 扫描符得到符合条件的BeanDefinition，此时得到的BeanDefinition只有两个属性beanClass和resource
 			Set<BeanDefinition> candidates = findCandidateComponents(basePackage);
+			// 遍历扫描到的beanDefinition
 			for (BeanDefinition candidate : candidates) {
+				// 解析Scope注解
 				ScopeMetadata scopeMetadata = this.scopeMetadataResolver.resolveScopeMetadata(candidate);
 				candidate.setScope(scopeMetadata.getScopeName());
+				// 获取beanName
 				String beanName = this.beanNameGenerator.generateBeanName(candidate, this.registry);
+				// 给beanDefinition的一些属性设置默认值，例：setLazyInit、setEnforceInitMethod(false)、setEnforceDestroyMethod(false)
 				if (candidate instanceof AbstractBeanDefinition) {
 					postProcessBeanDefinition((AbstractBeanDefinition) candidate, beanName);
 				}
+				// 解析@Lazy、@Primary、@DependsOn、@Role、@Description，设置给beanDefinition对应的属性上
 				if (candidate instanceof AnnotatedBeanDefinition) {
 					AnnotationConfigUtils.processCommonDefinitionAnnotations((AnnotatedBeanDefinition) candidate);
 				}
+				// 检查Spring容器中是否已经存在相同的beanName
 				if (checkCandidate(beanName, candidate)) {
 					BeanDefinitionHolder definitionHolder = new BeanDefinitionHolder(candidate, beanName);
 					definitionHolder =
 							AnnotationConfigUtils.applyScopedProxyMode(scopeMetadata, definitionHolder, this.registry);
 					beanDefinitions.add(definitionHolder);
+					// 注册到beanDefinitionMap中
 					registerBeanDefinition(definitionHolder, this.registry);
 				}
 			}
@@ -341,6 +355,7 @@ public class ClassPathBeanDefinitionScanner extends ClassPathScanningCandidateCo
 		if (originatingDef != null) {
 			existingDef = originatingDef;
 		}
+		// 检查beanDefinition是否兼容，如果有两个ApplicationContent扫描到同一个类，此时是兼容的，直接返回false并不会抛异常，但是也不会进行注册了
 		if (isCompatible(beanDefinition, existingDef)) {
 			return false;
 		}
