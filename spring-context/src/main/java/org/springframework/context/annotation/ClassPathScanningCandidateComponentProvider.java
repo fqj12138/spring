@@ -433,7 +433,7 @@ public class ClassPathScanningCandidateComponentProvider implements EnvironmentC
 				if (resource.isReadable()) {
 					try {
 						// 利用MetadataReaderFactory对象解析Resource对象得到MetadataReader对象
-						// 在Spring源码中MetadataReader具体实现类为CachingMetadataReaderFactory
+						// 在Spring源码中MetadataReaderFactory具体实现类为CachingMetadataReaderFactory
 						// MetadataReader具体实现类为SimpleMetadataReader
 						// 该元数据读取器可以获取类的各种信息，主要是包含了AnnotationMetadata，例：类的名称、父类的名称、所实现的所有接口、所有内部类的名称、是不是抽象类
 						MetadataReader metadataReader = getMetadataReaderFactory().getMetadataReader(resource);

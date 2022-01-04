@@ -255,6 +255,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 		Object beanInstance;
 
 		// Eagerly check singleton cache for manually registered singletons.
+		// 尝试从单例池中获取bean，就算是原型类也会先从单例池中尝试获取
 		Object sharedInstance = getSingleton(beanName);
 		if (sharedInstance != null && args == null) {
 			if (logger.isTraceEnabled()) {
@@ -277,8 +278,11 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			}
 
 			// Check if bean definition exists in this factory.
+			// 检查是否有父beanFactory
+			// 如果有父BeanFactory且当前BeanFactory的容器中没有指定名称的BeanDefinition，才会进入if里面
 			BeanFactory parentBeanFactory = getParentBeanFactory();
 			if (parentBeanFactory != null && !containsBeanDefinition(beanName)) {
+				// 直接调用父BeanFactory的doGetBean方法或者getBean方法
 				// Not found -> check parent.
 				String nameToLookup = originalBeanName(name);
 				if (parentBeanFactory instanceof AbstractBeanFactory) {
@@ -308,18 +312,26 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				if (requiredType != null) {
 					beanCreation.tag("beanType", requiredType::toString);
 				}
+				// 拿到合并之后的BeanDefinition
 				RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
+				// 检查BeanDefinition是否是抽象的，是就直接抛异常
 				checkMergedBeanDefinition(mbd, beanName, args);
 
 				// Guarantee initialization of beans that the current bean depends on.
+				// 检查BeanDefinition是否有DependsOn注解，有则进入if
+				// dependsOn表示当前beanName所依赖的bean，当前Bean创建之前dependsOn所依赖的Bean必须已经创建好了
 				String[] dependsOn = mbd.getDependsOn();
 				if (dependsOn != null) {
+					// 遍历所有的dependsOn
 					for (String dep : dependsOn) {
+						// 判断beanName是不是被dep所依赖了，如果是就会出现循环依赖问题
 						if (isDependent(beanName, dep)) {
 							throw new BeanCreationException(mbd.getResourceDescription(), beanName,
 									"Circular depends-on relationship between '" + beanName + "' and '" + dep + "'");
 						}
+						// 注册dep，存入dependentBeanMap中，key为dep，value为beanName
 						registerDependentBean(dep, beanName);
+						// 创建所依赖的Bean
 						try {
 							getBean(dep);
 						}
@@ -331,6 +343,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				}
 
 				// Create bean instance.
+				// 单例Bean
 				if (mbd.isSingleton()) {
 					sharedInstance = getSingleton(beanName, () -> {
 						try {
@@ -346,30 +359,37 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 					});
 					beanInstance = getObjectForBeanInstance(sharedInstance, name, beanName, mbd);
 				}
-
+				// 原型Bean
 				else if (mbd.isPrototype()) {
 					// It's a prototype -> create a new instance.
 					Object prototypeInstance = null;
 					try {
+						// 记录正在创建原型Bean
 						beforePrototypeCreation(beanName);
+						// 创建Bean
 						prototypeInstance = createBean(beanName, mbd, args);
 					}
 					finally {
+						// 移除正在创建的标志
 						afterPrototypeCreation(beanName);
 					}
 					beanInstance = getObjectForBeanInstance(prototypeInstance, name, beanName, mbd);
 				}
-
+				// 其他作用域Bean
 				else {
+					// 获取作用域名称
 					String scopeName = mbd.getScope();
 					if (!StringUtils.hasLength(scopeName)) {
 						throw new IllegalStateException("No scope name defined for bean ´" + beanName + "'");
 					}
+					// 根据作用于名称获取作用域对象
 					Scope scope = this.scopes.get(scopeName);
 					if (scope == null) {
 						throw new IllegalStateException("No Scope registered for scope name '" + scopeName + "'");
 					}
 					try {
+						// 类似与单例Bean的getSingleton，会先尝试从对应的作用域缓存中获取，
+						// 如果没有就走创建Bean的lambda表达式创建Bean，创建后放到对应的作用域缓存中
 						Object scopedInstance = scope.get(beanName, () -> {
 							beforePrototypeCreation(beanName);
 							try {
@@ -397,6 +417,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			}
 		}
 
+		// 检查通过name所得到的beanInstance的类型是否是requireType
 		return adaptBeanInstance(name, beanInstance, requiredType);
 	}
 
@@ -982,9 +1003,11 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	 * @since 5.3
 	 */
 	BeanPostProcessorCache getBeanPostProcessorCache() {
+		// beanPostProcessorCache是Bean的后置处理器缓存，存储各种类型的后置处理器集合
 		BeanPostProcessorCache bpCache = this.beanPostProcessorCache;
 		if (bpCache == null) {
 			bpCache = new BeanPostProcessorCache();
+			// beanPostProcessors是Bean的后置处理器集合，并没有进行分类
 			for (BeanPostProcessor bp : this.beanPostProcessors) {
 				if (bp instanceof InstantiationAwareBeanPostProcessor) {
 					bpCache.instantiationAware.add((InstantiationAwareBeanPostProcessor) bp);
@@ -1260,6 +1283,9 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	 * @return the transformed bean name
 	 */
 	protected String transformedBeanName(String name) {
+		// 1、解析传入的名称是否带有"&"符号，有就去掉
+		// 2、解析传入的名称是否为别名，如果是别名，递归遍历aliasMap获取名称
+		// 别名存储数据结构<"alias1","name">,<"alias2","name">,一个bean可能会有多个别名
 		return canonicalName(BeanFactoryUtils.transformedBeanName(name));
 	}
 
@@ -1534,6 +1560,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			throws CannotLoadBeanClassException {
 
 		try {
+			// 判断当前BeanDefinition的beanClass的类型是不是class类型，如果是直接返回
 			if (mbd.hasBeanClass()) {
 				return mbd.getBeanClass();
 			}
@@ -1561,6 +1588,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	private Class<?> doResolveBeanClass(RootBeanDefinition mbd, Class<?>... typesToMatch)
 			throws ClassNotFoundException {
 
+		// 获取类加载器
 		ClassLoader beanClassLoader = getBeanClassLoader();
 		ClassLoader dynamicLoader = beanClassLoader;
 		boolean freshResolve = false;
@@ -1581,8 +1609,10 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			}
 		}
 
+		// 获取类的名称，并不是beanName
 		String className = mbd.getBeanClassName();
 		if (className != null) {
+			// 解析Spring表达式，有可能直接返回一个class对象，用的比较少
 			Object evaluated = evaluateBeanDefinitionString(className, mbd);
 			if (!className.equals(evaluated)) {
 				// A dynamically resolved expression, supported as of 4.2...
@@ -1602,6 +1632,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				// to avoid storing the resolved Class in the bean definition.
 				if (dynamicLoader != null) {
 					try {
+						// 类加载器加载类
 						return dynamicLoader.loadClass(className);
 					}
 					catch (ClassNotFoundException ex) {
